@@ -15,5 +15,7 @@ Route::get('dashboard', function () {
 Route::get('play-vs-ai', [PlayVsAiController::class, 'index'])->name('play-vs-ai');
 Route::match(['get', 'post'], 'play-vs-ai/match', [PlayVsAiController::class, 'match'])
     ->name('play-vs-ai.match');
+Route::post('play-vs-ai/move', [PlayVsAiController::class, 'move'])
+    ->name('play-vs-ai.move');
 
 require __DIR__.'/settings.php';
