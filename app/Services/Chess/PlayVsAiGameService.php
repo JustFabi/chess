@@ -3,7 +3,8 @@
 namespace App\Services\Chess;
 
 /**
- * Refactored Chess Engine Service with Heuristic Evaluation
+ * Refactored Chess Engine Service
+ * Includes Heuristic Evaluation with Endgame Tapering.
  */
 class PlayVsAiGameService
 {
@@ -49,8 +50,7 @@ class PlayVsAiGameService
 
     /**
      * Piece-Square Tables (PST)
-     * Values favor central control and piece safety.
-     * Tables are from Black's perspective (0-63). White uses flipped indices.
+     * Tables are defined from Black's perspective. White uses flipped indices.
      */
     private const PST = [
         self::PAWN => [
@@ -113,6 +113,17 @@ class PlayVsAiGameService
             20, 20,  0,  0,  0,  0, 20, 20,
             20, 30, 10,  0,  0, 10, 30, 20
         ]
+    ];
+
+    private const PST_KING_ENDGAME = [
+        -50,-40,-30,-20,-20,-30,-40,-50,
+        -30,-20,-10,  0,  0,-10,-20,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-30,  0,  0,  0,  0,-30,-30,
+        -50,-30,-30,-30,-30,-30,-30,-50
     ];
 
     // --- COORDINATE UTILITIES ---
@@ -216,6 +227,55 @@ class PlayVsAiGameService
         ];
     }
 
+    // --- HEURISTIC EVALUATION ---
+
+    public function evaluateBoard(array $pieces): int
+    {
+        $totalEval = 0;
+        $phase = $this->getGamePhase($pieces);
+
+        foreach ($pieces as $sq => $piece) {
+            $idx = $this->sqToIndex($sq);
+            $type = $piece['type'];
+            $isWhite = $piece['color'] === self::WHITE;
+
+            $val = self::PIECE_VALUES[$type];
+            $pstIdx = $isWhite ? ((7 - (int)floor($idx / 8)) * 8 + ($idx % 8)) : $idx;
+
+            if ($type === self::KING) {
+                // Blend Opening/Middlegame PST with Endgame PST
+                $mg = self::PST[self::KING][$pstIdx];
+                $eg = self::PST_KING_ENDGAME[$pstIdx];
+                $positionalVal = (($mg * (256 - $phase)) + ($eg * $phase)) / 256;
+            } else {
+                $positionalVal = self::PST[$type][$pstIdx] ?? 0;
+            }
+
+            if ($isWhite) {
+                $totalEval += ($val + $positionalVal);
+            } else {
+                $totalEval -= ($val + $positionalVal);
+            }
+        }
+        return (int)$totalEval;
+    }
+
+    private function getGamePhase(array $pieces): int
+    {
+        // Define total major material for a full board
+        $midgameLimit = 24000;
+        $currentMaterial = 0;
+
+        foreach ($pieces as $p) {
+            if ($p['type'] !== self::KING && $p['type'] !== self::PAWN) {
+                $currentMaterial += self::PIECE_VALUES[$p['type']];
+            }
+        }
+
+        $phase = 256 - ($currentMaterial * 256 / $midgameLimit);
+        return max(0, min(256, (int)$phase));
+    }
+
     // --- LOGIC ENGINE ---
 
     private function calculateLegalMoves(array $pieces, ?array $lastMove, array $castling): array
@@ -302,31 +362,6 @@ class PlayVsAiGameService
             return ['winner' => $opponent, 'reason' => 'checkmate'];
         }
         return ['winner' => 'draw', 'reason' => 'stalemate'];
-    }
-
-    // --- HEURISTIC EVALUATION ---
-
-    public function evaluateBoard(array $pieces): int
-    {
-        $totalEval = 0;
-        foreach ($pieces as $sq => $piece) {
-            $idx = $this->sqToIndex($sq);
-            $type = $piece['type'];
-            $isWhite = $piece['color'] === self::WHITE;
-
-            $val = self::PIECE_VALUES[$type];
-
-            // Map index to PST. White needs flipped vertical coordinates.
-            $pstIdx = $isWhite ? ((7 - (int)floor($idx / 8)) * 8 + ($idx % 8)) : $idx;
-            $positionalVal = self::PST[$type][$pstIdx] ?? 0;
-
-            if ($isWhite) {
-                $totalEval += ($val + $positionalVal);
-            } else {
-                $totalEval -= ($val + $positionalVal);
-            }
-        }
-        return $totalEval;
     }
 
     // --- MOVE GENERATORS ---
