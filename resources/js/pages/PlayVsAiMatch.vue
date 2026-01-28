@@ -38,6 +38,7 @@ watch(
 );
 
 const {
+    board,
     boardSquares,
     capturedByBlack,
     capturedByWhite,
@@ -80,6 +81,53 @@ const resultDescription = computed(() => {
 
     return 'Game over.';
 });
+
+const evaluationScore = computed(() => {
+    const value = Number(board.value?.evaluation ?? 0);
+    return Number.isFinite(value) ? value : 0;
+});
+
+const evaluationValueLabel = computed(() => {
+    const pawns = Math.abs(evaluationScore.value) / 100;
+    const side = evaluationScore.value >= 0 ? 'White' : 'Black';
+    return `${side} +${pawns.toFixed(1)}`;
+});
+
+const evaluationStatus = computed(() => {
+    const score = evaluationScore.value;
+    const absScore = Math.abs(score);
+
+    if (absScore < 30) {
+        return 'Balanced';
+    }
+
+    if (absScore < 120) {
+        return score > 0 ? 'White edge' : 'Black edge';
+    }
+
+    if (absScore < 300) {
+        return score > 0 ? 'White better' : 'Black better';
+    }
+
+    return score > 0 ? 'White winning' : 'Black winning';
+});
+
+const evaluationBarStyle = computed(() => {
+    const range = 800;
+    const clamped = Math.max(
+        -range,
+        Math.min(range, evaluationScore.value),
+    );
+    const percent = ((clamped + range) / (2 * range)) * 100;
+
+    return {
+        width: `${percent}%`,
+    };
+});
+
+const evaluationBarClass = computed(() =>
+    evaluationScore.value >= 0 ? 'bg-[var(--accent)]' : 'bg-[#111827]',
+);
 
 watch(
     () => result.value?.winner,
@@ -827,16 +875,23 @@ const move = async (executedMove) => {
                             Evaluation
                         </h3>
                         <div class="mt-4">
-                            <div class="h-2 rounded-full bg-white/70">
+                            <div
+                                class="relative h-2 overflow-hidden rounded-full bg-white/70"
+                            >
                                 <div
-                                    class="h-full w-[54%] rounded-full bg-[var(--accent)]"
+                                    class="absolute left-1/2 top-0 h-full w-px bg-[color:var(--line)]"
+                                ></div>
+                                <div
+                                    class="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-out"
+                                    :class="evaluationBarClass"
+                                    :style="evaluationBarStyle"
                                 ></div>
                             </div>
                             <div
                                 class="mt-2 flex items-center justify-between text-xs text-[color:var(--muted)]"
                             >
-                                <span>White +0.2</span>
-                                <span>Balanced</span>
+                                <span>{{ evaluationValueLabel }}</span>
+                                <span>{{ evaluationStatus }}</span>
                             </div>
                         </div>
                         <div

@@ -3,12 +3,7 @@
 namespace App\Services\Chess;
 
 /**
- * Refactored Chess Engine Service
- * Optimizations:
- * 1. Integer-based coordinate system (0-63) for faster math.
- * 2. Outward-looking attack detection (Early exit optimization).
- * 3. Type-safe constants for pieces and colors.
- * 4. Stalemate and Checkmate detection logic.
+ * Refactored Chess Engine Service with Heuristic Evaluation
  */
 class PlayVsAiGameService
 {
@@ -41,6 +36,85 @@ class PlayVsAiGameService
         ],
     ];
 
+    // --- EVALUATION CONSTANTS ---
+
+    private const PIECE_VALUES = [
+        self::PAWN   => 100,
+        self::KNIGHT => 320,
+        self::BISHOP => 330,
+        self::ROOK   => 500,
+        self::QUEEN  => 900,
+        self::KING   => 20000
+    ];
+
+    /**
+     * Piece-Square Tables (PST)
+     * Values favor central control and piece safety.
+     * Tables are from Black's perspective (0-63). White uses flipped indices.
+     */
+    private const PST = [
+        self::PAWN => [
+            0,  0,  0,  0,  0,  0,  0,  0,
+            50, 50, 50, 50, 50, 50, 50, 50,
+            10, 10, 20, 30, 30, 20, 10, 10,
+            5,  5, 10, 25, 25, 10,  5,  5,
+            0,  0,  0, 20, 20,  0,  0,  0,
+            5, -5,-10,  0,  0,-10, -5,  5,
+            5, 10, 10,-20,-20, 10, 10,  5,
+            0,  0,  0,  0,  0,  0,  0,  0
+        ],
+        self::KNIGHT => [
+            -50,-40,-30,-30,-30,-30,-40,-50,
+            -40,-20,  0,  0,  0,  0,-20,-40,
+            -30,  0, 10, 15, 15, 10,  0,-30,
+            -30,  5, 15, 20, 20, 15,  5,-30,
+            -30,  0, 15, 20, 20, 15,  0,-30,
+            -30,  5, 10, 15, 15, 10,  5,-30,
+            -40,-20,  0,  5,  5,  0,-20,-40,
+            -50,-40,-30,-30,-30,-30,-40,-50
+        ],
+        self::BISHOP => [
+            -20,-10,-10,-10,-10,-10,-10,-20,
+            -10,  0,  0,  0,  0,  0,  0,-10,
+            -10,  0,  5, 10, 10,  5,  0,-10,
+            -10,  5,  5, 10, 10,  5,  5,-10,
+            -10,  0, 10, 10, 10, 10,  0,-10,
+            -10, 10, 10, 10, 10, 10, 10,-10,
+            -10,  5,  0,  0,  0,  0,  5,-10,
+            -20,-10,-10,-10,-10,-10,-10,-20
+        ],
+        self::ROOK => [
+            0,  0,  0,  0,  0,  0,  0,  0,
+            5, 10, 10, 10, 10, 10, 10,  5,
+            -5,  0,  0,  0,  0,  0,  0, -5,
+            -5,  0,  0,  0,  0,  0,  0, -5,
+            -5,  0,  0,  0,  0,  0,  0, -5,
+            -5,  0,  0,  0,  0,  0,  0, -5,
+            -5,  0,  0,  0,  0,  0,  0, -5,
+            0,  0,  0,  5,  5,  0,  0,  0
+        ],
+        self::QUEEN => [
+            -20,-10,-10, -5, -5,-10,-10,-20,
+            -10,  0,  0,  0,  0,  0,  0,-10,
+            -10,  0,  5,  5,  5,  5,  0,-10,
+            -5,  0,  5,  5,  5,  5,  0, -5,
+            0,  0,  5,  5,  5,  5,  0, -5,
+            -10,  5,  5,  5,  5,  5,  0,-10,
+            -10,  0,  5,  0,  0,  0,  0,-10,
+            -20,-10,-10, -5, -5,-10,-10,-20
+        ],
+        self::KING => [
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -20,-30,-30,-40,-40,-30,-30,-20,
+            -10,-20,-20,-20,-20,-20,-20,-10,
+            20, 20,  0,  0,  0,  0, 20, 20,
+            20, 30, 10,  0,  0, 10, 30, 20
+        ]
+    ];
+
     // --- COORDINATE UTILITIES ---
 
     private function sqToIndex(string $sq): int
@@ -69,6 +143,7 @@ class PlayVsAiGameService
             'board' => [
                 'pieces' => $pieces,
                 'possibleMoves' => $this->calculateLegalMoves($pieces, null, $castling),
+                'evaluation' => $this->evaluateBoard($pieces),
             ],
             'castling' => $castling,
             'lastMove' => null,
@@ -99,7 +174,6 @@ class PlayVsAiGameService
         $capturedPiece = null;
         $captureSq = null;
 
-        // Execute En Passant
         if (!empty($matched['enPassant'])) {
             $capIdx = $this->sqToIndex($matched['to']) + ($movingPiece['color'] === self::WHITE ? -8 : 8);
             $captureSq = $this->indexToSq($capIdx);
@@ -111,13 +185,11 @@ class PlayVsAiGameService
             $capturedPiece = $pieces[$captureSq];
         }
 
-        // Move the piece
         unset($pieces[$matched['from']]);
         $finalPiece = $movingPiece;
         if (!empty($matched['promotion'])) $finalPiece['type'] = $matched['promotion'];
         $pieces[$matched['to']] = $finalPiece;
 
-        // Handle Castling Rook
         if (!empty($matched['castle'])) {
             $conf = self::CASTLING_CONFIG[$movingPiece['color']][$matched['castle']];
             $rook = $pieces[$this->indexToSq($conf['rFrom'])];
@@ -132,7 +204,11 @@ class PlayVsAiGameService
         $result = $this->determineResult($pieces, $newLastMove, $nextMoves);
 
         return [
-            'board' => ['pieces' => $pieces, 'possibleMoves' => $nextMoves],
+            'board' => [
+                'pieces' => $pieces,
+                'possibleMoves' => $nextMoves,
+                'evaluation' => $this->evaluateBoard($pieces)
+            ],
             'lastMove' => $newLastMove,
             'castling' => $newCastling,
             'result' => $result,
@@ -178,7 +254,6 @@ class PlayVsAiGameService
         $idx = $this->sqToIndex($targetSq);
         $f = $idx % 8; $r = (int)floor($idx / 8);
 
-        // Knight
         foreach ([[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]] as [$df, $dr]) {
             $nf = $f + $df; $nr = $r + $dr;
             if ($nf >= 0 && $nf < 8 && $nr >= 0 && $nr < 8) {
@@ -187,7 +262,6 @@ class PlayVsAiGameService
             }
         }
 
-        // Sliding/King
         $dirs = [[0,1,'s'],[0,-1,'s'],[1,0,'s'],[-1,0,'s'],[1,1,'d'],[1,-1,'d'],[-1,1,'d'],[-1,-1,'d']];
         foreach ($dirs as [$df, $dr, $type]) {
             for ($i = 1; $i < 8; $i++) {
@@ -205,7 +279,6 @@ class PlayVsAiGameService
             }
         }
 
-        // Pawns
         $pDir = ($attackerColor === self::WHITE) ? -1 : 1;
         foreach ([-1, 1] as $df) {
             $nf = $f + $df; $nr = $r + $pDir;
@@ -229,6 +302,31 @@ class PlayVsAiGameService
             return ['winner' => $opponent, 'reason' => 'checkmate'];
         }
         return ['winner' => 'draw', 'reason' => 'stalemate'];
+    }
+
+    // --- HEURISTIC EVALUATION ---
+
+    public function evaluateBoard(array $pieces): int
+    {
+        $totalEval = 0;
+        foreach ($pieces as $sq => $piece) {
+            $idx = $this->sqToIndex($sq);
+            $type = $piece['type'];
+            $isWhite = $piece['color'] === self::WHITE;
+
+            $val = self::PIECE_VALUES[$type];
+
+            // Map index to PST. White needs flipped vertical coordinates.
+            $pstIdx = $isWhite ? ((7 - (int)floor($idx / 8)) * 8 + ($idx % 8)) : $idx;
+            $positionalVal = self::PST[$type][$pstIdx] ?? 0;
+
+            if ($isWhite) {
+                $totalEval += ($val + $positionalVal);
+            } else {
+                $totalEval -= ($val + $positionalVal);
+            }
+        }
+        return $totalEval;
     }
 
     // --- MOVE GENERATORS ---
@@ -291,7 +389,6 @@ class PlayVsAiGameService
         $dir = ($side === self::WHITE) ? 1 : -1;
         $promoR = ($side === self::WHITE) ? 7 : 0;
 
-        // Single/Double push
         $t1 = $this->indexToSq(($r + $dir) * 8 + $f);
         if (!isset($pieces[$t1])) {
             $this->addPawnMove($moves, $sq, $t1, false, ($r + $dir) === $promoR);
@@ -301,7 +398,6 @@ class PlayVsAiGameService
             }
         }
 
-        // Captures
         foreach ([-1, 1] as $df) {
             $nf = $f + $df; $nr = $r + $dir;
             if ($nf < 0 || $nf > 7) continue;
@@ -309,7 +405,6 @@ class PlayVsAiGameService
             if (isset($pieces[$target]) && $pieces[$target]['color'] !== $side) {
                 $this->addPawnMove($moves, $sq, $target, true, $nr === $promoR);
             }
-            // En Passant
             if ($lastMove && $lastMove['piece']['type'] === self::PAWN) {
                 $lFrom = $this->sqToIndex($lastMove['from']); $lTo = $this->sqToIndex($lastMove['to']);
                 if (abs((int)floor($lFrom / 8) - (int)floor($lTo / 8)) === 2 && $lTo === ($r * 8 + $nf)) {

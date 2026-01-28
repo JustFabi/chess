@@ -43,6 +43,7 @@ export const useGameStateStore = defineStore('gameState', {
         board: {
             pieces: {},
             possibleMoves: [],
+            evaluation: 0,
         },
         lastMove: null,
         castling: null,
@@ -116,6 +117,9 @@ export const useGameStateStore = defineStore('gameState', {
                 possibleMoves: Array.isArray(board?.possibleMoves)
                     ? board.possibleMoves
                     : [],
+                evaluation: Number.isFinite(board?.evaluation)
+                    ? board.evaluation
+                    : 0,
             };
 
             this.lastMove = gameState?.lastMove ?? null;
