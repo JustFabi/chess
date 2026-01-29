@@ -163,6 +163,29 @@ class ChessEngineService
         ];
     }
 
+    public function hydrateState(array $gameState): array
+    {
+        $board = $gameState['board'] ?? [];
+        $pieces = $board['pieces'] ?? [];
+        $lastMove = $gameState['lastMove'] ?? null;
+        $castling = $gameState['castling'] ?? [
+            self::WHITE => ['kingSide' => true, 'queenSide' => true],
+            self::BLACK => ['kingSide' => true, 'queenSide' => true],
+        ];
+
+        $gameState['board'] = [
+            'pieces' => $pieces,
+            'possibleMoves' => $this->calculateLegalMoves($pieces, $lastMove, $castling),
+            'evaluation' => $this->evaluateBoard($pieces),
+        ];
+        $gameState['castling'] = $castling;
+        $gameState['lastMove'] = $lastMove;
+        $gameState['moves'] = $gameState['moves'] ?? [];
+        $gameState['result'] = $gameState['result'] ?? null;
+
+        return $gameState;
+    }
+
     public function applyMove(array $gameState, array $move): array
     {
         $pieces = $gameState['board']['pieces'];

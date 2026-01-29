@@ -1,5 +1,133 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
+import axios from 'axios';
+import { onBeforeUnmount, ref } from 'vue';
+import { Spinner } from '@/components/ui/spinner';
+import { getEcho } from '@/lib/echo';
+
+const isQuickMatchLoading = ref(false);
+const quickMatchError = ref(null);
+const queueKey = ref(null);
+const channelName = ref(null);
+
+const clearQuickMatchChannel = () => {
+    if (channelName.value) {
+        getEcho().leave(channelName.value);
+    }
+    channelName.value = null;
+    queueKey.value = null;
+};
+
+const resetQuickMatch = () => {
+    clearQuickMatchChannel();
+    isQuickMatchLoading.value = false;
+};
+
+const handleMatchFound = (payload) => {
+    const gameId = payload?.gameId;
+    if (!gameId || !isQuickMatchLoading.value) {
+        return;
+    }
+
+    resetQuickMatch();
+    router.visit(`/quick-match/match/${gameId}`);
+};
+
+const listenForMatch = async (key) => {
+    const channel = `quick-match.${key}`;
+    channelName.value = channel;
+
+    getEcho()
+        .channel(channel)
+        .listen('.QuickMatchFound', (payload) => {
+            handleMatchFound(payload);
+        });
+
+    try {
+        const response = await axios.get(`/quick-match/status/${key}`, {
+            headers: {
+                Accept: 'application/json',
+            },
+        });
+
+        if (response?.data?.status === 'matched') {
+            handleMatchFound(response.data);
+        }
+    } catch (error) {
+        // Status check is a safety net; failures should not break the queue.
+    }
+};
+
+const startQuickMatch = async () => {
+    if (isQuickMatchLoading.value) {
+        return;
+    }
+
+    isQuickMatchLoading.value = true;
+    quickMatchError.value = null;
+
+    try {
+        const response = await axios.post(
+            '/quick-match/queue',
+            {},
+            {
+                headers: {
+                    Accept: 'application/json',
+                },
+            },
+        );
+
+        const payload = response?.data ?? {};
+        queueKey.value = payload?.queueKey ?? null;
+
+        if (payload?.status === 'matched' && payload?.gameId) {
+            handleMatchFound(payload);
+            return;
+        }
+
+        if (!queueKey.value) {
+            throw new Error('Unable to join the quick match queue.');
+        }
+
+        await listenForMatch(queueKey.value);
+    } catch (error) {
+        const message =
+            error?.response?.data?.message ??
+            error?.message ??
+            'Unable to start quick match.';
+        quickMatchError.value = message;
+        resetQuickMatch();
+    }
+};
+
+const cancelQuickMatch = async () => {
+    if (!queueKey.value) {
+        resetQuickMatch();
+        quickMatchError.value = null;
+        return;
+    }
+
+    try {
+        await axios.post(
+            '/quick-match/cancel',
+            { queueKey: queueKey.value },
+            {
+                headers: {
+                    Accept: 'application/json',
+                },
+            },
+        );
+    } catch (error) {
+        // Keep UX smooth even if cancel fails silently.
+    }
+
+    resetQuickMatch();
+    quickMatchError.value = null;
+};
+
+onBeforeUnmount(() => {
+    clearQuickMatchChannel();
+});
 </script>
 
 <template>
@@ -142,9 +270,18 @@ import { Head, Link } from '@inertiajs/vue3';
                     <div class="flex flex-wrap items-center gap-3">
                         <button
                             type="button"
-                            class="rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_35px_-24px_rgba(15,118,110,0.7)]"
+                            class="rounded-xl bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_35px_-24px_rgba(15,118,110,0.7)] transition disabled:cursor-not-allowed disabled:opacity-70"
+                            :disabled="isQuickMatchLoading"
+                            @click="startQuickMatch"
                         >
-                            Quick match
+                            <span
+                                v-if="isQuickMatchLoading"
+                                class="inline-flex items-center gap-2"
+                            >
+                                <Spinner class="size-4 text-white" />
+                                Searching...
+                            </span>
+                            <span v-else>Quick match</span>
                         </button>
                         <Link
                             href="/local-match"
@@ -161,6 +298,39 @@ import { Head, Link } from '@inertiajs/vue3';
                         <span class="text-xs text-[color:var(--muted)]">
                             Guest mode enabled.
                         </span>
+                    </div>
+
+                    <div
+                        v-if="isQuickMatchLoading"
+                        class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm"
+                    >
+                        <div class="flex items-center gap-3">
+                            <Spinner
+                                class="size-4 text-[color:var(--accent-strong)]"
+                            />
+                            <div>
+                                <p class="font-semibold">
+                                    Searching for an opponent...
+                                </p>
+                                <p class="text-xs text-[color:var(--muted)]">
+                                    We will drop you into the match instantly.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-4 py-2 text-xs font-semibold text-[color:var(--ink)]"
+                            @click="cancelQuickMatch"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+
+                    <div
+                        v-if="quickMatchError"
+                        class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+                    >
+                        {{ quickMatchError }}
                     </div>
 
                     <div class="grid gap-4 sm:grid-cols-3">

@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\LocalMatchController;
 use App\Http\Controllers\PlayVsAiController;
+use App\Http\Controllers\QuickMatchController;
 
 Route::get('/', function () {
     return Inertia::render('Dashboard');
@@ -24,5 +25,16 @@ Route::match(['get', 'post'], 'local-match/match', [LocalMatchController::class,
     ->name('local-match.match');
 Route::post('local-match/move', [LocalMatchController::class, 'move'])
     ->name('local-match.move');
+
+Route::post('quick-match/queue', [QuickMatchController::class, 'queue'])
+    ->name('quick-match.queue');
+Route::get('quick-match/status/{queueKey}', [QuickMatchController::class, 'status'])
+    ->name('quick-match.status');
+Route::post('quick-match/cancel', [QuickMatchController::class, 'cancel'])
+    ->name('quick-match.cancel');
+Route::get('quick-match/match/{game}', [QuickMatchController::class, 'match'])
+    ->name('quick-match.match');
+Route::post('quick-match/move', [QuickMatchController::class, 'move'])
+    ->name('quick-match.move');
 
 require __DIR__.'/settings.php';
