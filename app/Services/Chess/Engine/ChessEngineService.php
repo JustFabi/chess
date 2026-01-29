@@ -18,6 +18,7 @@ class ChessEngineService
 
     private const WHITE = 'white';
     private const BLACK = 'black';
+    private const DEFAULT_TIME_CONTROL = '10+5';
 
     private const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
@@ -149,8 +150,10 @@ class ChessEngineService
             self::WHITE => ['kingSide' => true, 'queenSide' => true],
             self::BLACK => ['kingSide' => true, 'queenSide' => true]
         ];
+        $normalizedSettings = $this->normalizeSettings($settings);
 
         return [
+            'settings' => $normalizedSettings,
             'board' => [
                 'pieces' => $pieces,
                 'possibleMoves' => $this->calculateLegalMoves($pieces, null, $castling),
@@ -159,7 +162,9 @@ class ChessEngineService
             'castling' => $castling,
             'lastMove' => null,
             'moves' => [],
+            'clock' => $this->buildClock($normalizedSettings, null),
             'result' => null,
+            'drawOffer' => null,
         ];
     }
 
@@ -172,22 +177,32 @@ class ChessEngineService
             self::WHITE => ['kingSide' => true, 'queenSide' => true],
             self::BLACK => ['kingSide' => true, 'queenSide' => true],
         ];
-
-        $gameState['board'] = [
-            'pieces' => $pieces,
-            'possibleMoves' => $this->calculateLegalMoves($pieces, $lastMove, $castling),
-            'evaluation' => $this->evaluateBoard($pieces),
-        ];
-        $gameState['castling'] = $castling;
+        $gameState['settings'] = $this->normalizeSettings($gameState['settings'] ?? []);
         $gameState['lastMove'] = $lastMove;
         $gameState['moves'] = $gameState['moves'] ?? [];
         $gameState['result'] = $gameState['result'] ?? null;
+        $gameState['drawOffer'] = $gameState['drawOffer'] ?? null;
+        $gameState = $this->ensureClockState($gameState);
+
+        $possibleMoves = [];
+        if (!$gameState['result']) {
+            $possibleMoves = $this->calculateLegalMoves($pieces, $lastMove, $castling);
+        }
+
+        $gameState['board'] = [
+            'pieces' => $pieces,
+            'possibleMoves' => $possibleMoves,
+            'evaluation' => $this->evaluateBoard($pieces),
+        ];
+        $gameState['castling'] = $castling;
 
         return $gameState;
     }
 
-    public function applyMove(array $gameState, array $move): array
+    public function applyMove(array $gameState, array $move, ?int $now = null): array
     {
+        $now = $now ?? time();
+        $gameState = $this->ensureClockState($gameState, $now);
         $pieces = $gameState['board']['pieces'];
         $lastMove = $gameState['lastMove'];
         $castling = $gameState['castling'];
@@ -237,7 +252,18 @@ class ChessEngineService
         $nextMoves = $this->calculateLegalMoves($pieces, $newLastMove, $newCastling);
         $result = $this->determineResult($pieces, $newLastMove, $nextMoves);
 
+        $clock = $gameState['clock'];
+        $increment = (int) ($clock['increment'] ?? 0);
+        if ($movingPiece['color'] === self::WHITE) {
+            $clock['white'] = (int) ($clock['white'] ?? 0) + $increment;
+        } else {
+            $clock['black'] = (int) ($clock['black'] ?? 0) + $increment;
+        }
+        $clock['active'] = $this->getSideToMove($newLastMove);
+        $clock['lastTickAt'] = $now;
+
         return [
+            'settings' => $this->normalizeSettings($gameState['settings'] ?? []),
             'board' => [
                 'pieces' => $pieces,
                 'possibleMoves' => $nextMoves,
@@ -246,7 +272,9 @@ class ChessEngineService
             'lastMove' => $newLastMove,
             'castling' => $newCastling,
             'result' => $result,
-            'moves' => array_merge($gameState['moves'], [$matched])
+            'moves' => array_merge($gameState['moves'], [$matched]),
+            'clock' => $clock,
+            'drawOffer' => null,
         ];
     }
 
@@ -532,5 +560,132 @@ class ChessEngineService
             $p[self::FILES[$i].'8'] = ['type' => self::BACK_RANK_TYPES[$i], 'color' => self::BLACK];
         }
         return $p;
+    }
+
+    public function syncClock(array $gameState, ?int $now = null): array
+    {
+        $now = $now ?? time();
+        $gameState = $this->ensureClockState($gameState, $now);
+
+        if (!empty($gameState['result'])) {
+            return $gameState;
+        }
+
+        $clock = $gameState['clock'];
+        $active = $clock['active'] ?? $this->getSideToMove($gameState['lastMove'] ?? null);
+        $lastTickAt = (int) ($clock['lastTickAt'] ?? $now);
+        $elapsed = max(0, $now - $lastTickAt);
+
+        if ($elapsed > 0) {
+            if ($active === self::WHITE) {
+                $clock['white'] = max(0, (int) $clock['white'] - $elapsed);
+            } else {
+                $clock['black'] = max(0, (int) $clock['black'] - $elapsed);
+            }
+        }
+
+        $clock['active'] = $active;
+        $clock['lastTickAt'] = $now;
+        $gameState['clock'] = $clock;
+
+        if (
+            ($active === self::WHITE && $clock['white'] <= 0) ||
+            ($active === self::BLACK && $clock['black'] <= 0)
+        ) {
+            $gameState['result'] = [
+                'winner' => $active === self::WHITE ? self::BLACK : self::WHITE,
+                'reason' => 'timeout',
+            ];
+            $gameState['drawOffer'] = null;
+            if (isset($gameState['board']) && is_array($gameState['board'])) {
+                $gameState['board']['possibleMoves'] = [];
+            }
+        }
+
+        return $gameState;
+    }
+
+    private function ensureClockState(array $gameState, ?int $now = null): array
+    {
+        $now = $now ?? time();
+        $gameState['settings'] = $this->normalizeSettings($gameState['settings'] ?? []);
+        $lastMove = $gameState['lastMove'] ?? null;
+
+        if (!isset($gameState['clock']) || !is_array($gameState['clock'])) {
+            $gameState['clock'] = $this->buildClock($gameState['settings'], $lastMove, $now);
+            return $gameState;
+        }
+
+        $clock = $gameState['clock'];
+        $parsed = $this->parseTimeControl($gameState['settings']['timeControl'] ?? null);
+        $baseSeconds = $parsed['baseSeconds'];
+        $incrementSeconds = $parsed['incrementSeconds'];
+
+        $clock['white'] = is_numeric($clock['white'] ?? null)
+            ? (int) $clock['white']
+            : $baseSeconds;
+        $clock['black'] = is_numeric($clock['black'] ?? null)
+            ? (int) $clock['black']
+            : $baseSeconds;
+        $clock['increment'] = is_numeric($clock['increment'] ?? null)
+            ? (int) $clock['increment']
+            : $incrementSeconds;
+        $clock['active'] = in_array($clock['active'] ?? null, [self::WHITE, self::BLACK], true)
+            ? $clock['active']
+            : $this->getSideToMove($lastMove);
+        $clock['lastTickAt'] = is_numeric($clock['lastTickAt'] ?? null)
+            ? (int) $clock['lastTickAt']
+            : $now;
+
+        $gameState['clock'] = $clock;
+        return $gameState;
+    }
+
+    private function buildClock(array $settings, ?array $lastMove, ?int $now = null): array
+    {
+        $now = $now ?? time();
+        $parsed = $this->parseTimeControl($settings['timeControl'] ?? null);
+        $baseSeconds = $parsed['baseSeconds'];
+        $incrementSeconds = $parsed['incrementSeconds'];
+
+        return [
+            'white' => $baseSeconds,
+            'black' => $baseSeconds,
+            'increment' => $incrementSeconds,
+            'active' => $this->getSideToMove($lastMove),
+            'lastTickAt' => $now,
+        ];
+    }
+
+    private function parseTimeControl(?string $value): array
+    {
+        $value = $value ?: self::DEFAULT_TIME_CONTROL;
+        $parts = explode('+', $value);
+        $baseMinutes = isset($parts[0]) && is_numeric($parts[0]) ? (int) $parts[0] : 0;
+        $incrementSeconds = isset($parts[1]) && is_numeric($parts[1]) ? (int) $parts[1] : 0;
+
+        if ($baseMinutes <= 0) {
+            $baseMinutes = 10;
+        }
+        if ($incrementSeconds < 0) {
+            $incrementSeconds = 0;
+        }
+
+        return [
+            'baseSeconds' => $baseMinutes * 60,
+            'incrementSeconds' => $incrementSeconds,
+        ];
+    }
+
+    private function normalizeSettings(array $settings): array
+    {
+        return array_merge(
+            [
+                'side' => 'random',
+                'timeControl' => self::DEFAULT_TIME_CONTROL,
+                'variant' => 'standard',
+            ],
+            array_filter($settings, static fn ($value) => $value !== null),
+        );
     }
 }

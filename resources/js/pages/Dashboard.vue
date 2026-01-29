@@ -1,14 +1,45 @@
 <script setup>
 import { Head, Link, router } from '@inertiajs/vue3';
 import axios from 'axios';
-import { onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { Spinner } from '@/components/ui/spinner';
 import { getEcho } from '@/lib/echo';
+import {
+    formatTimeControlDescription,
+    formatTimeControlTitle,
+    timeControlPresets,
+} from '@/lib/timeControls';
 
 const isQuickMatchLoading = ref(false);
 const quickMatchError = ref(null);
 const queueKey = ref(null);
 const channelName = ref(null);
+const defaultTimeControlIndex = timeControlPresets.findIndex(
+    (preset) => preset.value === '10+5',
+);
+const timeControlIndex = ref(
+    defaultTimeControlIndex >= 0 ? defaultTimeControlIndex : 0,
+);
+
+const activeTimeControl = computed(
+    () => timeControlPresets[timeControlIndex.value] ?? timeControlPresets[0],
+);
+const timeControlTitle = computed(() =>
+    formatTimeControlTitle(activeTimeControl.value?.value),
+);
+const timeControlDescription = computed(() =>
+    formatTimeControlDescription(activeTimeControl.value?.value),
+);
+
+const cycleTimeControl = (direction) => {
+    if (!timeControlPresets.length) {
+        return;
+    }
+
+    timeControlIndex.value =
+        (timeControlIndex.value + direction + timeControlPresets.length) %
+        timeControlPresets.length;
+};
 
 const clearQuickMatchChannel = () => {
     if (channelName.value) {
@@ -533,7 +564,7 @@ onBeforeUnmount(() => {
                                         Time control
                                     </p>
                                     <p class="text-[color:var(--muted)]">
-                                        10 minutes with 5 second increment.
+                                        {{ timeControlDescription }}
                                     </p>
                                 </div>
                             </li>
@@ -553,9 +584,27 @@ onBeforeUnmount(() => {
                             class="mt-5 flex items-center justify-between rounded-2xl border border-[color:var(--line)] bg-white/70 px-4 py-3 text-xs text-[color:var(--muted)]"
                         >
                             <span>Preset</span>
-                            <span class="font-semibold text-[color:var(--ink)]"
-                                >Rapid 10+5</span
-                            >
+                            <div class="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    class="rounded-lg border border-[color:var(--line)] bg-white/80 px-2 py-1 text-[10px] font-semibold text-[color:var(--ink)]"
+                                    @click="cycleTimeControl(-1)"
+                                >
+                                    Prev
+                                </button>
+                                <span
+                                    class="font-semibold text-[color:var(--ink)]"
+                                >
+                                    {{ timeControlTitle }}
+                                </span>
+                                <button
+                                    type="button"
+                                    class="rounded-lg border border-[color:var(--line)] bg-white/80 px-2 py-1 text-[10px] font-semibold text-[color:var(--ink)]"
+                                    @click="cycleTimeControl(1)"
+                                >
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </section>

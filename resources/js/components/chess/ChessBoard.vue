@@ -15,11 +15,21 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    orientation: {
+        type: String,
+        default: 'white',
+    },
 });
 
 const emit = defineEmits(['select-square']);
 
 const highlightSet = computed(() => new Set(props.highlightSquares));
+const isFlipped = computed(() => props.orientation === 'black');
+const displaySquares = computed(() =>
+    isFlipped.value ? [...props.boardSquares].reverse() : props.boardSquares,
+);
+const leftFile = computed(() => (isFlipped.value ? 'h' : 'a'));
+const bottomRank = computed(() => (isFlipped.value ? 8 : 1));
 
 const selectSquare = (square) => {
     emit('select-square', square);
@@ -32,7 +42,7 @@ const selectSquare = (square) => {
             class="grid aspect-square grid-cols-8 grid-rows-8 overflow-hidden rounded-xl ring-1 ring-[color:var(--line)]"
         >
             <div
-                v-for="square in boardSquares"
+                v-for="square in displaySquares"
                 :key="square.key"
                 class="relative flex items-center justify-center"
                 @click="selectSquare(square)"
@@ -54,7 +64,7 @@ const selectSquare = (square) => {
                     class="absolute h-8 w-8 rounded-full bg-white"
                 ></div>
                 <span
-                    v-if="square.file === 'a'"
+                    v-if="square.file === leftFile"
                     class="absolute top-1 left-1 text-[10px] font-semibold"
                     :class="
                         square.isDark
@@ -65,7 +75,7 @@ const selectSquare = (square) => {
                     {{ square.rank }}
                 </span>
                 <span
-                    v-if="square.rank === 1"
+                    v-if="square.rank === bottomRank"
                     class="absolute right-1 bottom-1 text-[10px] font-semibold"
                     :class="
                         square.isDark

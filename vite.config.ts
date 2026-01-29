@@ -24,4 +24,16 @@ export default defineConfig({
             },
         }),
     ],
+    server: {
+        host: '0.0.0.0', // binds to all IPv4 interfaces
+        port: 5173,
+        cors: {
+            origin: 'http://192.168.0.190:8888',
+            credentials: true,
+        },
+        hmr: {
+            host: '192.168.0.190', // LAN IP for other devices
+            protocol: 'ws',
+        },
+    },
 });

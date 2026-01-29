@@ -1,20 +1,15 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { storeToRefs } from 'pinia';
 import { computed, ref, watch } from 'vue';
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
-import ChessBoard from '@/components/chess/ChessBoard.vue';
-import ChessPieceIcon from '@/components/chess/ChessPieceIcon.vue';
+import ChessMatchBoardCard from '@/components/chess/ChessMatchBoardCard.vue';
+import ChessMatchDrawOfferModal from '@/components/chess/ChessMatchDrawOfferModal.vue';
+import ChessMatchResultModal from '@/components/chess/ChessMatchResultModal.vue';
+import ChessMatchSidebar from '@/components/chess/ChessMatchSidebar.vue';
 import ChessPieceSprite from '@/components/chess/ChessPieceSprite.vue';
+import { useChessClock } from '@/composables/useChessClock';
+import { formatTimeControlTitle } from '@/lib/timeControls';
 import { useGameStateStore } from '../stores/gameStateStore';
 
 const props = defineProps({
@@ -43,103 +38,110 @@ watch(
 const {
     board,
     boardSquares,
-    capturedByBlack,
-    capturedByWhite,
+    capturedPieces,
+    clock,
+    settings,
     moves,
+    moveList,
     lastMove,
     highlightSquares,
     selectedSquare,
     gameId,
     result,
+    drawOffer,
 } = storeToRefs(gameStateStore);
 
+const { whiteClock, blackClock } = useChessClock({
+    clock,
+    result,
+    settings,
+    lastMove,
+});
+
 const moveError = ref(null);
+const actionError = ref(null);
 const showResultModal = ref(false);
+const showDrawOfferModal = ref(false);
+const isBoardFlipped = ref(false);
+const isActionLoading = ref(false);
+const isSidebarCollapsed = ref(false);
 
-const winnerLabel = computed(() => {
-    const winner = result.value?.winner;
-    if (!winner) {
-        return '';
-    }
+const baseOrientation = computed(() =>
+    settings.value?.side === 'black' ? 'black' : 'white',
+);
+const boardOrientation = computed(() =>
+    isBoardFlipped.value
+        ? baseOrientation.value === 'white'
+            ? 'black'
+            : 'white'
+        : baseOrientation.value,
+);
+const playerSide = computed(() => baseOrientation.value);
+const opponentSide = computed(() =>
+    playerSide.value === 'white' ? 'black' : 'white',
+);
+const playerCaptured = computed(() =>
+    playerSide.value === 'white'
+        ? capturedPieces.value.capturedByWhite
+        : capturedPieces.value.capturedByBlack,
+);
+const opponentCaptured = computed(() =>
+    opponentSide.value === 'white'
+        ? capturedPieces.value.capturedByWhite
+        : capturedPieces.value.capturedByBlack,
+);
+const evaluation = computed(() => board.value?.evaluation ?? 0);
+const isDrawOfferPending = computed(
+    () => drawOffer.value?.status === 'pending',
+);
+const isDrawOfferFromMe = computed(
+    () => drawOffer.value?.from === playerSide.value,
+);
+const shouldShowDrawOfferModal = computed(() => isDrawOfferPending.value);
+const timeControlTitle = computed(() =>
+    formatTimeControlTitle(settings.value?.timeControl),
+);
 
-    return `${winner.charAt(0).toUpperCase()}${winner.slice(1)}`;
-});
+const topPlayer = computed(() => ({
+    badge: 'P2',
+    name: 'Local player',
+    subtitle: `${opponentSide.value} pieces`,
+    side: opponentSide.value,
+    clock:
+        opponentSide.value === 'white' ? whiteClock.value : blackClock.value,
+}));
 
-const resultTitle = computed(() => {
-    if (!winnerLabel.value) {
-        return 'Game over';
-    }
-
-    return `${winnerLabel.value} wins`;
-});
-
-const resultDescription = computed(() => {
-    if (!result.value?.winner) {
-        return '';
-    }
-
-    if (result.value.reason === 'checkmate') {
-        return 'Checkmate.';
-    }
-
-    return 'Game over.';
-});
-
-const evaluationScore = computed(() => {
-    const value = Number(board.value?.evaluation ?? 0);
-    return Number.isFinite(value) ? value : 0;
-});
-
-const evaluationValueLabel = computed(() => {
-    const pawns = Math.abs(evaluationScore.value) / 100;
-    const side = evaluationScore.value >= 0 ? 'White' : 'Black';
-    return `${side} +${pawns.toFixed(1)}`;
-});
-
-const evaluationStatus = computed(() => {
-    const score = evaluationScore.value;
-    const absScore = Math.abs(score);
-
-    if (absScore < 30) {
-        return 'Balanced';
-    }
-
-    if (absScore < 120) {
-        return score > 0 ? 'White edge' : 'Black edge';
-    }
-
-    if (absScore < 300) {
-        return score > 0 ? 'White better' : 'Black better';
-    }
-
-    return score > 0 ? 'White winning' : 'Black winning';
-});
-
-const evaluationBarStyle = computed(() => {
-    const range = 800;
-    const clamped = Math.max(
-        -range,
-        Math.min(range, evaluationScore.value),
-    );
-    const percent = ((clamped + range) / (2 * range)) * 100;
-
-    return {
-        width: `${percent}%`,
-    };
-});
-
-const evaluationBarClass = computed(() =>
-    evaluationScore.value >= 0 ? 'bg-[var(--accent)]' : 'bg-[#111827]',
+const bottomPlayer = computed(() => ({
+    badge: 'P1',
+    name: 'Local player',
+    subtitle: `${playerSide.value} pieces`,
+    side: playerSide.value,
+    clock: playerSide.value === 'white' ? whiteClock.value : blackClock.value,
+}));
+const matchStatusLabel = computed(() =>
+    result.value ? 'Game over' : 'In progress',
 );
 
 watch(
-    () => result.value?.winner,
-    (winner) => {
-        showResultModal.value = Boolean(winner);
+    () => result.value,
+    (nextResult) => {
+        showResultModal.value = Boolean(nextResult);
     },
     { immediate: true },
 );
 
+watch(
+    () => [shouldShowDrawOfferModal.value, result.value],
+    ([shouldShow, nextResult]) => {
+        if (nextResult) {
+            showDrawOfferModal.value = false;
+            return;
+        }
+
+        showDrawOfferModal.value = shouldShow;
+    },
+    { immediate: true },
+);
 
 const selectSquare = (square) => {
     moveError.value = null;
@@ -211,6 +213,86 @@ const move = async (executedMove) => {
         }
     }
 };
+
+const performAction = async (action, options = {}) => {
+    if (!gameId.value || isActionLoading.value) {
+        return false;
+    }
+
+    isActionLoading.value = true;
+    if (!options.silent) {
+        actionError.value = null;
+    }
+
+    try {
+        const response = await axios.post(
+            '/local-match/action',
+            {
+                gameId: gameId.value,
+                action,
+                side: playerSide.value,
+            },
+            {
+                headers: {
+                    Accept: 'application/json',
+                },
+            },
+        );
+
+        const payload = response?.data ?? {};
+        if (payload?.gameState) {
+            gameStateStore.setGameState(payload.gameState, payload.gameId);
+        }
+
+        gameStateStore.clearSelection();
+        moveError.value = null;
+        actionError.value = null;
+        return true;
+    } catch (error) {
+        const errors = error?.response?.data?.errors ?? null;
+        const message =
+            (Array.isArray(errors?.action)
+                ? errors.action.join(' ')
+                : errors?.action) ??
+            (Array.isArray(errors?.side) ? errors.side.join(' ') : errors?.side) ??
+            error?.response?.data?.message ??
+            error?.message ??
+            'Unable to update game.';
+        if (!options.silent) {
+            actionError.value = message;
+        }
+        return false;
+    } finally {
+        isActionLoading.value = false;
+    }
+};
+
+const offerDraw = () => performAction('offer-draw');
+const acceptDraw = () => performAction('accept-draw');
+const declineDraw = () => performAction('decline-draw');
+const surrenderMatch = () => performAction('resign');
+const restartMatch = () => performAction('restart');
+const flipBoard = () => {
+    isBoardFlipped.value = !isBoardFlipped.value;
+};
+const toggleSidebar = () => {
+    isSidebarCollapsed.value = !isSidebarCollapsed.value;
+};
+
+const handleDrawOfferOpen = (nextOpen) => {
+    if (!nextOpen && isDrawOfferPending.value) {
+        declineDraw();
+    }
+    showDrawOfferModal.value = nextOpen;
+};
+
+const exitToLobby = async () => {
+    if (!result.value) {
+        await performAction('resign', { silent: true });
+    }
+
+    router.visit('/dashboard');
+};
 </script>
 
 <template>
@@ -280,45 +362,21 @@ const move = async (executedMove) => {
             ></div>
         </div>
 
-        <Dialog :open="showResultModal" @update:open="showResultModal = $event">
-            <DialogContent
-                class="border border-[color:var(--line)] bg-[var(--panel)] text-[color:var(--ink)] shadow-[0_24px_60px_-40px_rgba(15,23,42,0.6)]"
-                style="
-                    --panel: rgba(255, 255, 255, 0.78);
-                    --ink: #0d1117;
-                    --muted: #5b6370;
-                    --line: rgba(15, 23, 42, 0.12);
-                    --accent: #0f766e;
-                "
-            >
-                <DialogHeader class="space-y-2">
-                    <DialogTitle class="font-['Space_Grotesk'] text-xl">
-                        {{ resultTitle }}
-                    </DialogTitle>
-                    <DialogDescription
-                        class="text-sm text-[color:var(--muted)]"
-                    >
-                        {{ resultDescription }}
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                    <DialogClose as-child>
-                        <button
-                            type="button"
-                            class="rounded-xl border border-[color:var(--line)] bg-white/70 px-4 py-2 text-sm font-semibold text-[color:var(--ink)]"
-                        >
-                            Close
-                        </button>
-                    </DialogClose>
-                    <Link
-                        href="/local-match"
-                        class="rounded-xl bg-[var(--accent)] px-4 py-2 text-center text-sm font-semibold text-white shadow-[0_12px_30px_-20px_rgba(15,118,110,0.6)]"
-                    >
-                        New match
-                    </Link>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <ChessMatchResultModal
+            :open="showResultModal"
+            :result="result"
+            primary-href="/local-match"
+            primary-label="New match"
+            @update:open="showResultModal = $event"
+        />
+        <ChessMatchDrawOfferModal
+            :open="showDrawOfferModal"
+            :from-side="drawOffer?.from"
+            :action-disabled="isActionLoading"
+            @accept="acceptDraw"
+            @decline="declineDraw"
+            @update:open="handleDrawOfferOpen"
+        />
 
         <ChessPieceSprite />
 
@@ -369,314 +427,70 @@ const move = async (executedMove) => {
                     >
                         Back to setup
                     </Link>
-                    <Link
-                        href="/dashboard"
+                    <button
+                        type="button"
                         class="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_30px_-20px_rgba(15,118,110,0.6)]"
+                        @click="exitToLobby"
                     >
                         Exit to lobby
-                    </Link>
+                    </button>
                 </div>
             </header>
 
             <main
-                class="mt-10 grid flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_320px]"
+                class="mt-10 flex flex-1 flex-col transition-[gap] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] lg:flex-row lg:items-start"
+                :class="isSidebarCollapsed ? 'gap-0' : 'gap-8'"
             >
                 <section
-                    class="space-y-6 motion-safe:animate-in motion-safe:duration-700 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4"
+                    class="flex-1 min-w-0 space-y-6 motion-safe:animate-in motion-safe:duration-700 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4"
                     style="animation-delay: 80ms"
                 >
-                    <div
-                        class="rounded-3xl border border-[color:var(--line)] bg-[var(--panel)] p-6 shadow-[0_30px_80px_-60px_rgba(15,23,42,0.6)]"
-                    >
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p
-                                    class="text-[11px] tracking-[0.3em] text-[color:var(--muted)] uppercase"
-                                >
-                                    Match board
-                                </p>
-                                <h2
-                                    class="mt-2 font-['Space_Grotesk'] text-2xl font-semibold"
-                                >
-                                    Rapid 10+5 - Standard
-                                </h2>
-                            </div>
-                            <span
-                                class="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[color:var(--accent-strong)]"
-                            >
-                                In progress
-                            </span>
-                        </div>
-                        <div
-                            v-if="moveError"
-                            class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700"
-                        >
-                            {{ moveError }}
-                        </div>
-
-                        <div class="mt-5 space-y-4">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-3">
-                                    <div
-                                        class="grid size-11 place-items-center rounded-full border border-[color:var(--line)] bg-white/70 text-sm font-semibold text-[color:var(--ink)]"
-                                    >
-                                        P2
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-semibold">
-                                            Local player
-                                        </p>
-                                        <p
-                                            class="text-xs text-[color:var(--muted)]"
-                                        >
-                                            Black pieces
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <span
-                                        class="rounded-full border border-[color:var(--line)] bg-white/70 px-2 py-1 text-[11px] tracking-[0.2em] text-[color:var(--muted)] uppercase"
-                                    >
-                                        Black
-                                    </span>
-                                    <span
-                                        class="rounded-xl bg-[#111827] px-3 py-2 font-['Space_Grotesk'] text-sm font-semibold text-white"
-                                    >
-                                        09:51
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2 text-xs">
-                                <span
-                                    class="tracking-[0.25em] text-[color:var(--muted)] uppercase"
-                                >
-                                    Captured
-                                </span>
-                                <div class="flex items-center gap-1">
-                                    <ChessPieceIcon
-                                        v-for="(piece, index) in capturedByBlack"
-                                        :key="`black-${piece.type}-${index}`"
-                                        :piece="piece"
-                                        class-name="h-4 w-4"
-                                    />
-                                </div>
-                            </div>
-
-                            <ChessBoard
-                                :board-squares="boardSquares"
-                                :selected-square="selectedSquare"
-                                :highlight-squares="highlightSquares"
-                                @select-square="selectSquare"
-                            />
-
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-3">
-                                    <div
-                                        class="grid size-11 place-items-center rounded-full border border-[color:var(--line)] bg-[var(--accent-soft)] text-sm font-semibold text-[color:var(--accent-strong)]"
-                                    >
-                                        P1
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-semibold">
-                                            Local player
-                                        </p>
-                                        <p
-                                            class="text-xs text-[color:var(--muted)]"
-                                        >
-                                            White pieces
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <span
-                                        class="rounded-full border border-[color:var(--line)] bg-white/70 px-2 py-1 text-[11px] tracking-[0.2em] text-[color:var(--muted)] uppercase"
-                                    >
-                                        White
-                                    </span>
-                                    <span
-                                        class="rounded-xl bg-[#111827] px-3 py-2 font-['Space_Grotesk'] text-sm font-semibold text-white"
-                                    >
-                                        09:44
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2 text-xs">
-                                <span
-                                    class="tracking-[0.25em] text-[color:var(--muted)] uppercase"
-                                >
-                                    Captured
-                                </span>
-                                <div class="flex items-center gap-1">
-                                    <ChessPieceIcon
-                                        v-for="(piece, index) in capturedByWhite"
-                                        :key="`white-${piece.type}-${index}`"
-                                        :piece="piece"
-                                        class-name="h-4 w-4"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <ChessMatchBoardCard
+                        :title="`${timeControlTitle} - Standard`"
+                        :status-label="matchStatusLabel"
+                        :move-error="moveError"
+                        :board-squares="boardSquares"
+                        :selected-square="selectedSquare"
+                        :highlight-squares="highlightSquares"
+                        :orientation="boardOrientation"
+                        :top-player="topPlayer"
+                        :bottom-player="bottomPlayer"
+                        :top-captured="opponentCaptured"
+                        :bottom-captured="playerCaptured"
+                        :sidebar-collapsed="isSidebarCollapsed"
+                        sidebar-id="match-sidebar"
+                        @select-square="selectSquare"
+                        @toggle-sidebar="toggleSidebar"
+                    />
                 </section>
 
-                <aside
-                    class="space-y-6 motion-safe:animate-in motion-safe:duration-700 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-6"
-                    style="animation-delay: 160ms"
+                <div
+                    id="match-sidebar"
+                    class="relative overflow-hidden transition-[max-height,opacity,transform] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] lg:transition-[max-width,opacity,transform]"
+                    :aria-hidden="isSidebarCollapsed"
+                    :class="
+                        isSidebarCollapsed
+                            ? 'max-h-0 opacity-0 -translate-y-4 scale-[0.98] pointer-events-none lg:max-w-0 lg:translate-x-6 lg:translate-y-0'
+                            : 'max-h-[2000px] opacity-100 translate-y-0 scale-100 lg:max-w-[320px]'
+                    "
                 >
-                    <div
-                        class="rounded-3xl border border-[color:var(--line)] bg-[var(--panel)] p-6"
-                    >
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p
-                                    class="text-[11px] tracking-[0.3em] text-[color:var(--muted)] uppercase"
-                                >
-                                    Move list
-                                </p>
-                                <h3
-                                    class="mt-2 font-['Space_Grotesk'] text-xl font-semibold"
-                                >
-                                    Opening moves
-                                </h3>
-                            </div>
-                            <span
-                                class="rounded-full border border-[color:var(--line)] bg-white/70 px-3 py-1 text-xs font-semibold text-[color:var(--ink)]"
-                            >
-                                2 ply
-                            </span>
-                        </div>
-                        <div class="mt-4 grid gap-2 text-sm">
-                            <div
-                                v-for="move in moves"
-                                :key="move.move"
-                                class="grid grid-cols-[32px_1fr_1fr] items-center gap-2 rounded-xl border border-transparent px-3 py-2"
-                                :class="
-                                    move.move === 2
-                                        ? 'border-[color:var(--line)] bg-[var(--accent-soft)]'
-                                        : 'bg-white/70'
-                                "
-                            >
-                                <span
-                                    class="text-xs font-semibold text-[color:var(--muted)]"
-                                >
-                                    {{ move.move }}
-                                </span>
-                                <span
-                                    class="font-semibold text-[color:var(--ink)]"
-                                >
-                                    {{ move.white }}
-                                </span>
-                                <span
-                                    class="font-semibold text-[color:var(--ink)]"
-                                >
-                                    {{ move.black }}
-                                </span>
-                            </div>
-                        </div>
-                        <div
-                            class="mt-4 flex items-center justify-between text-xs text-[color:var(--muted)]"
-                        >
-                            <span>
-                                Last move:
-                                {{
-                                    lastMove
-                                        ? `${lastMove.from} to ${lastMove.to}`
-                                        : '—'
-                                }}
-                            </span>
-                            <span>Opening: Sicilian</span>
-                        </div>
+                    <div class="lg:w-[320px]">
+                        <ChessMatchSidebar
+                            :moves="moveList"
+                            :ply-count="moves.length"
+                            :last-move="lastMove"
+                            :evaluation="evaluation"
+                            :action-disabled="isActionLoading"
+                            :action-error="actionError"
+                            :draw-offer-pending="isDrawOfferPending"
+                            :draw-offer-from-me="isDrawOfferFromMe"
+                            @offer-draw="offerDraw"
+                            @surrender="surrenderMatch"
+                            @restart="restartMatch"
+                            @flip-board="flipBoard"
+                        />
                     </div>
-
-                    <div
-                        class="rounded-3xl border border-[color:var(--line)] bg-[var(--panel)] p-6"
-                    >
-                        <p
-                            class="text-[11px] tracking-[0.3em] text-[color:var(--muted)] uppercase"
-                        >
-                            Game controls
-                        </p>
-                        <h3
-                            class="mt-2 font-['Space_Grotesk'] text-xl font-semibold"
-                        >
-                            Actions
-                        </h3>
-                        <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
-                            <button
-                                type="button"
-                                class="rounded-xl border border-[color:var(--line)] bg-white/70 px-3 py-2 font-semibold text-[color:var(--ink)]"
-                            >
-                                Offer draw
-                            </button>
-                            <button
-                                type="button"
-                                class="rounded-xl border border-[color:var(--line)] bg-white/70 px-3 py-2 font-semibold text-[color:var(--ink)]"
-                            >
-                                Resign
-                            </button>
-                            <button
-                                type="button"
-                                class="rounded-xl border border-[color:var(--line)] bg-white/70 px-3 py-2 font-semibold text-[color:var(--ink)]"
-                            >
-                                Restart
-                            </button>
-                            <button
-                                type="button"
-                                class="rounded-xl border border-[color:var(--line)] bg-white/70 px-3 py-2 font-semibold text-[color:var(--ink)]"
-                            >
-                                Flip board
-                            </button>
-                        </div>
-                        <div
-                            class="mt-4 flex items-center justify-between rounded-2xl border border-[color:var(--line)] bg-white/70 px-4 py-3 text-xs text-[color:var(--muted)]"
-                        >
-                            <span>Hints</span>
-                            <span class="font-semibold text-[color:var(--ink)]"
-                                >Off</span
-                            >
-                        </div>
-                    </div>
-
-                    <div
-                        class="rounded-3xl border border-[color:var(--line)] bg-[var(--panel)] p-6"
-                    >
-                        <p
-                            class="text-[11px] tracking-[0.3em] text-[color:var(--muted)] uppercase"
-                        >
-                            Analysis
-                        </p>
-                        <h3
-                            class="mt-2 font-['Space_Grotesk'] text-xl font-semibold"
-                        >
-                            Evaluation
-                        </h3>
-                        <div class="mt-4">
-                            <div
-                                class="relative h-2 overflow-hidden rounded-full bg-white/70"
-                            >
-                                <div
-                                    class="absolute left-1/2 top-0 h-full w-px bg-[color:var(--line)]"
-                                ></div>
-                                <div
-                                    class="h-full rounded-full motion-safe:transition-all motion-safe:duration-500 motion-safe:ease-out"
-                                    :class="evaluationBarClass"
-                                    :style="evaluationBarStyle"
-                                ></div>
-                            </div>
-                            <div
-                                class="mt-2 flex items-center justify-between text-xs text-[color:var(--muted)]"
-                            >
-                                <span>{{ evaluationValueLabel }}</span>
-                                <span>{{ evaluationStatus }}</span>
-                            </div>
-                        </div>
-                        <div
-                            class="mt-4 rounded-2xl border border-[color:var(--line)] bg-white/70 px-4 py-3 text-xs text-[color:var(--muted)]"
-                        >
-                            Engine line: 3. d4 cxd4 4. Nxd4
-                        </div>
-                    </div>
-                </aside>
+                </div>
             </main>
 
             <footer
@@ -684,7 +498,7 @@ const move = async (executedMove) => {
             >
                 <p>Local session. UI only.</p>
                 <div class="flex flex-wrap items-center gap-4">
-                    <span>Rapid 10+5</span>
+                    <span>{{ timeControlTitle }}</span>
                     <span>Standard rules</span>
                     <span>Orion Level 4</span>
                 </div>

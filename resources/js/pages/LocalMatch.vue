@@ -1,6 +1,10 @@
 <script setup>
 import { Head, Link, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
+import {
+    formatTimeControlLabel,
+    timeControlPresets,
+} from '@/lib/timeControls';
 
 const sideOptions = [
     { label: 'White', value: 'white' },
@@ -8,12 +12,7 @@ const sideOptions = [
     { label: 'Black', value: 'black' },
 ];
 
-const timeControlOptions = [
-    { label: '3+2 blitz', value: '3+2' },
-    { label: '5+0 blitz', value: '5+0' },
-    { label: '10+5 rapid', value: '10+5' },
-    { label: '15+10 rapid', value: '15+10' },
-];
+const timeControlOptions = timeControlPresets;
 
 const selectedSide = ref('random');
 const selectedTimeControl = ref('10+5');
@@ -33,12 +32,23 @@ const selectedSideLabel = computed(
             ?.label ?? 'Random',
 );
 
-const selectedTimeControlLabel = computed(
-    () =>
-        timeControlOptions.find(
-            (option) => option.value === selectedTimeControl.value,
-        )?.label ?? '10+5 rapid',
+const selectedTimeControlLabel = computed(() =>
+    formatTimeControlLabel(selectedTimeControl.value),
 );
+
+const cycleTimeControl = (direction) => {
+    if (!timeControlOptions.length) {
+        return;
+    }
+
+    const currentIndex = timeControlOptions.findIndex(
+        (option) => option.value === selectedTimeControl.value,
+    );
+    const nextIndex =
+        (currentIndex + direction + timeControlOptions.length) %
+        timeControlOptions.length;
+    selectedTimeControl.value = timeControlOptions[nextIndex].value;
+};
 
 const startMatch = () => {
     router.post('/local-match/match', {
@@ -343,6 +353,32 @@ const startMatch = () => {
                                     >
                                         {{ option.label }}
                                     </button>
+                                </div>
+                                <div
+                                    class="mt-3 flex items-center justify-between rounded-2xl border border-[color:var(--line)] bg-white/70 px-4 py-2 text-xs text-[color:var(--muted)]"
+                                >
+                                    <span>Preset</span>
+                                    <div class="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-lg border border-[color:var(--line)] bg-white/80 px-2 py-1 text-[10px] font-semibold text-[color:var(--ink)]"
+                                            @click="cycleTimeControl(-1)"
+                                        >
+                                            Prev
+                                        </button>
+                                        <span
+                                            class="font-semibold text-[color:var(--ink)]"
+                                        >
+                                            {{ selectedTimeControlLabel }}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            class="rounded-lg border border-[color:var(--line)] bg-white/80 px-2 py-1 text-[10px] font-semibold text-[color:var(--ink)]"
+                                            @click="cycleTimeControl(1)"
+                                        >
+                                            Next
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
