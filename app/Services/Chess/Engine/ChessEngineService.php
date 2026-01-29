@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Services\Chess;
+namespace App\Services\Chess\Engine;
 
 /**
- * Refactored Chess Engine Service
+ * Core Chess Engine Service
  * Includes Heuristic Evaluation with Endgame Tapering.
  */
-class PlayVsAiGameService
+class ChessEngineService
 {
     // Piece Types
     private const PAWN = 'p';

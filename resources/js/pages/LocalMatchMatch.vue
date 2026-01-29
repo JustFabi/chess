@@ -140,6 +140,7 @@ watch(
     { immediate: true },
 );
 
+
 const selectSquare = (square) => {
     moveError.value = null;
     const squareKey = square?.key;
@@ -176,7 +177,7 @@ const move = async (executedMove) => {
 
     try {
         const response = await axios.post(
-            '/play-vs-ai/move',
+            '/local-match/move',
             {
                 gameId: gameId.value,
                 move: {
@@ -213,7 +214,7 @@ const move = async (executedMove) => {
 </script>
 
 <template>
-    <Head title="Play vs AI">
+    <Head title="Local Match">
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
@@ -310,7 +311,7 @@ const move = async (executedMove) => {
                         </button>
                     </DialogClose>
                     <Link
-                        href="/play-vs-ai"
+                        href="/local-match"
                         class="rounded-xl bg-[var(--accent)] px-4 py-2 text-center text-sm font-semibold text-white shadow-[0_12px_30px_-20px_rgba(15,118,110,0.6)]"
                     >
                         New match
@@ -349,7 +350,7 @@ const move = async (executedMove) => {
                         <p
                             class="text-[11px] tracking-[0.35em] text-[color:var(--muted)] uppercase"
                         >
-                            Match vs AI
+                            Local match
                         </p>
                         <p class="font-['Space_Grotesk'] text-lg font-semibold">
                             Echelon
@@ -363,7 +364,7 @@ const move = async (executedMove) => {
                         Move {{ moves.length }}
                     </span>
                     <Link
-                        href="/play-vs-ai"
+                        href="/local-match"
                         class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-4 py-2 text-sm font-semibold text-[color:var(--ink)]"
                     >
                         Back to setup
@@ -403,7 +404,7 @@ const move = async (executedMove) => {
                             <span
                                 class="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[color:var(--accent-strong)]"
                             >
-                                Your turn
+                                In progress
                             </span>
                         </div>
                         <div
@@ -419,11 +420,11 @@ const move = async (executedMove) => {
                                     <div
                                         class="grid size-11 place-items-center rounded-full border border-[color:var(--line)] bg-white/70 text-sm font-semibold text-[color:var(--ink)]"
                                     >
-                                        AI
+                                        P2
                                     </div>
                                     <div>
                                         <p class="text-sm font-semibold">
-                                            Orion Level 4
+                                            Local player
                                         </p>
                                         <p
                                             class="text-xs text-[color:var(--muted)]"
@@ -473,11 +474,11 @@ const move = async (executedMove) => {
                                     <div
                                         class="grid size-11 place-items-center rounded-full border border-[color:var(--line)] bg-[var(--accent-soft)] text-sm font-semibold text-[color:var(--accent-strong)]"
                                     >
-                                        You
+                                        P1
                                     </div>
                                     <div>
                                         <p class="text-sm font-semibold">
-                                            Guest
+                                            Local player
                                         </p>
                                         <p
                                             class="text-xs text-[color:var(--muted)]"
@@ -681,7 +682,7 @@ const move = async (executedMove) => {
             <footer
                 class="mt-10 flex flex-wrap items-center justify-between gap-3 text-xs text-[color:var(--muted)]"
             >
-                <p>Guest session. UI only.</p>
+                <p>Local session. UI only.</p>
                 <div class="flex flex-wrap items-center gap-4">
                     <span>Rapid 10+5</span>
                     <span>Standard rules</span>

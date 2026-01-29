@@ -147,6 +147,12 @@ import { Head, Link } from '@inertiajs/vue3';
                             Quick match
                         </button>
                         <Link
+                            href="/local-match"
+                            class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-5 py-3 text-sm font-semibold text-[color:var(--ink)]"
+                        >
+                            Local 2-player
+                        </Link>
+                        <Link
                             href="/play-vs-ai"
                             class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-5 py-3 text-sm font-semibold text-[color:var(--ink)]"
                         >

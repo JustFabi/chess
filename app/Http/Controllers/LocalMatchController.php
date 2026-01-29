@@ -9,11 +9,11 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
-class PlayVsAiController extends Controller
+class LocalMatchController extends Controller
 {
     public function index(): Response
     {
-        return Inertia::render('PlayVsAi');
+        return Inertia::render('LocalMatch');
     }
 
     public function match(Request $request, ChessEngineService $gameService): Response
@@ -30,7 +30,7 @@ class PlayVsAiController extends Controller
             'status' => 'active',
         ]);
 
-        return Inertia::render('PlayVsAiMatch', [
+        return Inertia::render('LocalMatchMatch', [
             'gameId' => $game->id,
             'gameState' => $gameState,
         ]);
