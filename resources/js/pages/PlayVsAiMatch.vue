@@ -2,7 +2,7 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { storeToRefs } from 'pinia';
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import ChessMatchBoardCard from '@/components/chess/ChessMatchBoardCard.vue';
 import ChessMatchDrawOfferModal from '@/components/chess/ChessMatchDrawOfferModal.vue';
 import ChessMatchResultModal from '@/components/chess/ChessMatchResultModal.vue';
@@ -64,6 +64,7 @@ const showResultModal = ref(false);
 const showDrawOfferModal = ref(false);
 const isBoardFlipped = ref(false);
 const isActionLoading = ref(false);
+const isEngineThinking = ref(false);
 const isSidebarCollapsed = ref(false);
 
 const baseOrientation = computed(() =>
@@ -118,9 +119,24 @@ const bottomPlayer = computed(() => ({
     side: playerSide.value,
     clock: playerSide.value === 'white' ? whiteClock.value : blackClock.value,
 }));
-const matchStatusLabel = computed(() =>
-    result.value ? 'Game over' : 'Your turn',
-);
+const matchStatusLabel = computed(() => {
+    if (result.value) return 'Game over';
+    if (isEngineThinking.value) return 'AI is thinking...';
+    return 'Your turn';
+});
+
+const isMyTurn = computed(() => {
+    if (result.value) return false;
+    return clock.value.active === playerSide.value;
+});
+
+const isEngineTurn = computed(() => {
+    if (result.value) return false;
+    const activeSide = clock.value?.active;
+    const opponent = opponentSide.value;
+    const isTurn = activeSide === opponent;
+    return isTurn;
+});
 
 watch(
     () => result.value,
@@ -178,13 +194,15 @@ const move = async (executedMove) => {
     }
 
     try {
+        console.log('Sending move request', executedMove);
         const response = await axios.post(
-            '/play-vs-ai/move',
+            route('play-vs-ai.move'),
             {
                 gameId: gameId.value,
                 move: {
                     from: executedMove.from,
                     to: executedMove.to,
+                    promotion: executedMove.promotion ?? null,
                 },
             },
             {
@@ -195,9 +213,24 @@ const move = async (executedMove) => {
         );
 
         const payload = response?.data ?? {};
+        console.log('Move response received', payload);
 
         if (payload?.gameState) {
             gameStateStore.setGameState(payload.gameState, payload.gameId);
+
+            // Wait for computed properties like isEngineTurn to update
+            await nextTick();
+
+            console.log('Engine turn status:', isEngineTurn.value, {
+                active: clock.value?.active,
+                opponent: opponentSide.value,
+                result: result.value
+            });
+            // Check if it's engine's turn now
+            if (isEngineTurn.value) {
+                console.log('Triggering engine move');
+                triggerEngineMove();
+            }
         }
 
         gameStateStore.clearSelection();
@@ -214,6 +247,53 @@ const move = async (executedMove) => {
     }
 };
 
+const triggerEngineMove = async () => {
+    console.log('triggerEngineMove called', { isEngineThinking: isEngineThinking.value, isEngineTurn: isEngineTurn.value });
+    if (isEngineThinking.value || !isEngineTurn.value) {
+        return;
+    }
+
+    isEngineThinking.value = true;
+    try {
+        console.log('Sending engine move request for game', gameId.value);
+        const response = await axios.post(
+            route('play-vs-ai.engine-move'),
+            {
+                gameId: gameId.value,
+            },
+            {
+                headers: {
+                    Accept: 'application/json',
+                },
+            },
+        );
+
+        const payload = response?.data ?? {};
+        console.log('Engine move response received', payload);
+
+        if (payload?.gameState) {
+            gameStateStore.setGameState(payload.gameState, payload.gameId);
+        }
+    } catch (error) {
+        console.error('Engine move failed:', error);
+        moveError.value = 'AI failed to respond.';
+    } finally {
+        isEngineThinking.value = false;
+    }
+};
+
+watch(
+    () => isEngineTurn.value,
+    (isTurn) => {
+        console.log('isEngineTurn changed:', isTurn);
+        if (isTurn && !isEngineThinking.value) {
+            console.log('Triggering engine move from watcher');
+            triggerEngineMove();
+        }
+    },
+    { immediate: true },
+);
+
 const performAction = async (action, options = {}) => {
     if (!gameId.value || isActionLoading.value) {
         return false;
@@ -226,7 +306,7 @@ const performAction = async (action, options = {}) => {
 
     try {
         const response = await axios.post(
-            '/play-vs-ai/action',
+            route('play-vs-ai.action'),
             {
                 gameId: gameId.value,
                 action,
@@ -291,7 +371,7 @@ const exitToLobby = async () => {
         await performAction('resign', { silent: true });
     }
 
-    router.visit('/dashboard');
+    router.visit(route('dashboard'));
 };
 </script>
 
@@ -442,7 +522,7 @@ const exitToLobby = async () => {
                 :class="isSidebarCollapsed ? 'gap-0' : 'gap-8'"
             >
                 <section
-                    class="flex-1 min-w-0 space-y-6 motion-safe:animate-in motion-safe:duration-700 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4"
+                    class="min-w-0 flex-1 space-y-6 motion-safe:animate-in motion-safe:duration-700 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4"
                     style="animation-delay: 80ms"
                 >
                     <ChessMatchBoardCard
@@ -470,8 +550,8 @@ const exitToLobby = async () => {
                     :aria-hidden="isSidebarCollapsed"
                     :class="
                         isSidebarCollapsed
-                            ? 'max-h-0 opacity-0 -translate-y-4 scale-[0.98] pointer-events-none lg:max-w-0 lg:translate-x-6 lg:translate-y-0'
-                            : 'max-h-[2000px] opacity-100 translate-y-0 scale-100 lg:max-w-[320px]'
+                            ? 'pointer-events-none max-h-0 -translate-y-4 scale-[0.98] opacity-0 lg:max-w-0 lg:translate-x-6 lg:translate-y-0'
+                            : 'max-h-[2000px] translate-y-0 scale-100 opacity-100 lg:max-w-[320px]'
                     "
                 >
                     <div class="lg:w-[320px]">

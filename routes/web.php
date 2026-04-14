@@ -19,8 +19,19 @@ Route::match(['get', 'post'], 'play-vs-ai/match', [PlayVsAiController::class, 'm
     ->name('play-vs-ai.match');
 Route::post('play-vs-ai/move', [PlayVsAiController::class, 'move'])
     ->name('play-vs-ai.move');
+Route::post('play-vs-ai/engine-move', [PlayVsAiController::class, 'engineMove'])
+    ->name('play-vs-ai.engine-move');
 Route::post('play-vs-ai/action', [PlayVsAiController::class, 'action'])
     ->name('play-vs-ai.action');
+
+use App\Http\Controllers\AiVsAiController;
+Route::get('ai-vs-ai', [AiVsAiController::class, 'index'])->name('ai-vs-ai');
+Route::match(['get', 'post'], 'ai-vs-ai/match', [AiVsAiController::class, 'match'])
+    ->name('ai-vs-ai.match');
+Route::post('ai-vs-ai/engine-move', [AiVsAiController::class, 'engineMove'])
+    ->name('ai-vs-ai.engine-move');
+Route::post('ai-vs-ai/action', [AiVsAiController::class, 'action'])
+    ->name('ai-vs-ai.action');
 Route::get('local-match', [LocalMatchController::class, 'index'])
     ->name('local-match');
 Route::match(['get', 'post'], 'local-match/match', [LocalMatchController::class, 'match'])

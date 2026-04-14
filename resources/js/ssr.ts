@@ -5,6 +5,8 @@ import { createPinia } from 'pinia';
 import type { DefineComponent } from 'vue';
 import { createSSRApp, h } from 'vue';
 import { renderToString } from 'vue/server-renderer';
+import { ZiggyVue } from 'ziggy-js';
+import { Ziggy } from './ziggy';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -24,7 +26,8 @@ createServer(
 
                 return createSSRApp({ render: () => h(App, props) })
                     .use(plugin)
-                    .use(pinia);
+                    .use(pinia)
+                    .use(ZiggyVue, Ziggy);
             },
         }),
     { cluster: true },

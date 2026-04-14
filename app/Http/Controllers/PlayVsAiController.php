@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ChessGame;
 use App\Services\Chess\Engine\ChessEngineService;
+use App\Services\Chess\Engine\UciEngineService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -26,6 +27,7 @@ class PlayVsAiController extends Controller
         ]);
 
         $gameState = $gameService->createGameState($settings);
+
         $game = ChessGame::create([
             'state' => $this->stripPossibleMoves($gameState),
             'status' => 'active',
@@ -37,20 +39,31 @@ class PlayVsAiController extends Controller
         ]);
     }
 
-    public function move(Request $request, ChessEngineService $gameService): \Illuminate\Http\JsonResponse
+    public function move(Request $request, ChessEngineService $gameService, UciEngineService $uciService): \Illuminate\Http\JsonResponse
     {
         $validated = $request->validate([
             'gameId' => ['required', 'integer', 'exists:chess_games,id'],
             'move.from' => ['required', 'string', 'regex:/^[a-h][1-8]$/'],
             'move.to' => ['required', 'string', 'regex:/^[a-h][1-8]$/'],
+            'move.promotion' => ['nullable', 'string', 'in:q,r,b,n'],
         ]);
 
         $move = $validated['move'];
+        \Illuminate\Support\Facades\Log::debug('PlayVsAiController@move called', [
+            'gameId' => $validated['gameId'],
+            'move' => $move,
+        ]);
+
         $game = ChessGame::findOrFail($validated['gameId']);
         $gameState = is_array($game->state) ? $game->state : [];
 
         $now = time();
         $gameState = $gameService->syncClock($gameState, $now);
+
+        \Illuminate\Support\Facades\Log::debug('Game state synced in move', [
+            'active' => $gameState['clock']['active'] ?? null,
+            'result' => $gameState['result'] ?? null,
+        ]);
 
         $timeout = ($gameState['result']['reason'] ?? null) === 'timeout';
         if ($timeout) {
@@ -80,6 +93,9 @@ class PlayVsAiController extends Controller
         }
 
         $game->state = $this->stripPossibleMoves($nextState);
+        if (!empty($nextState['result'])) {
+            $game->status = 'finished';
+        }
         $game->save();
 
         $payload = [
@@ -88,6 +104,85 @@ class PlayVsAiController extends Controller
         ];
 
         return response()->json($payload);
+    }
+
+    public function engineMove(Request $request, ChessEngineService $gameService, UciEngineService $uciService): \Illuminate\Http\JsonResponse
+    {
+        $validated = $request->validate([
+            'gameId' => ['required', 'integer', 'exists:chess_games,id'],
+        ]);
+
+        \Illuminate\Support\Facades\Log::debug('PlayVsAiController@engineMove called', [
+            'gameId' => $validated['gameId'],
+        ]);
+
+        $game = ChessGame::findOrFail($validated['gameId']);
+        $gameState = is_array($game->state) ? $game->state : [];
+
+        $now = time();
+        $gameState = $gameService->syncClock($gameState, $now);
+
+        if (!empty($gameState['result'])) {
+            throw ValidationException::withMessages([
+                'game' => 'Game is already finished.',
+            ]);
+        }
+
+        $uciMoves = [];
+        foreach ($gameState['moves'] ?? [] as $m) {
+            $mStr = $m['from'] . $m['to'] . ($m['promotion'] ?? '');
+            $uciMoves[] = $mStr;
+        }
+
+        $movetime = 1000;
+        if (isset($gameState['clock'])) {
+            $side = $gameState['clock']['active'] ?? 'white';
+            $remaining = (int) ($gameState['clock'][$side] ?? 0);
+            $increment = (int) ($gameState['clock']['increment'] ?? 0);
+
+            // Simple move time heuristic: 1/40th of remaining time + 90% of increment
+            // Aim for at least 100ms and no more than 10 seconds for standard play
+            $movetime = (int) (($remaining / 40) + ($increment * 0.9)) * 1000;
+            $movetime = max(100, min(10000, $movetime));
+        }
+
+        \Illuminate\Support\Facades\Log::debug('Requesting AI move for game', [
+            'gameId' => $game->id,
+            'moves_count' => count($uciMoves),
+            'movetime' => $movetime,
+        ]);
+
+        $uciMoveStr = $uciService->getBestMove($uciMoves, $movetime);
+        \Illuminate\Support\Facades\Log::debug('AI move result', [
+            'gameId' => $game->id,
+            'bestMove' => $uciMoveStr,
+        ]);
+        if ($uciMoveStr) {
+            $uciMove = [
+                'from' => substr($uciMoveStr, 0, 2),
+                'to' => substr($uciMoveStr, 2, 2),
+                'promotion' => strlen($uciMoveStr) > 4 ? substr($uciMoveStr, 4, 1) : null,
+            ];
+
+            $gameState = $gameService->applyMove($gameState, $uciMove, time());
+
+            $game->state = $this->stripPossibleMoves($gameState);
+            if (!empty($gameState['result'])) {
+                $game->status = 'finished';
+            }
+            $game->save();
+        } else {
+            // Log if engine didn't return a move
+            \Illuminate\Support\Facades\Log::warning('UCI engine returned no move', [
+                'gameId' => $game->id,
+                'moves' => $uciMoves
+            ]);
+        }
+
+        return response()->json([
+            'gameId' => $game->id,
+            'gameState' => $gameState,
+        ]);
     }
 
     public function action(Request $request, ChessEngineService $gameService): JsonResponse

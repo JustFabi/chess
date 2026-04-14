@@ -61,7 +61,7 @@ const handleMatchFound = (payload) => {
     }
 
     resetQuickMatch();
-    router.visit(`/quick-match/match/${gameId}`);
+    router.visit(route('quick-match.match', { game: gameId }));
 };
 
 const listenForMatch = async (key) => {
@@ -75,7 +75,7 @@ const listenForMatch = async (key) => {
         });
 
     try {
-        const response = await axios.get(`/quick-match/status/${key}`, {
+        const response = await axios.get(route('quick-match.status', { queueKey: key }), {
             headers: {
                 Accept: 'application/json',
             },
@@ -99,7 +99,7 @@ const startQuickMatch = async () => {
 
     try {
         const response = await axios.post(
-            '/quick-match/queue',
+            route('quick-match.queue'),
             {},
             {
                 headers: {
@@ -315,16 +315,22 @@ onBeforeUnmount(() => {
                             <span v-else>Quick match</span>
                         </button>
                         <Link
-                            href="/local-match"
+                            :href="route('local-match')"
                             class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-5 py-3 text-sm font-semibold text-[color:var(--ink)]"
                         >
                             Local 2-player
                         </Link>
                         <Link
-                            href="/play-vs-ai"
+                            :href="route('play-vs-ai')"
                             class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-5 py-3 text-sm font-semibold text-[color:var(--ink)]"
                         >
-                            Play vs AI
+                            Play AI
+                        </Link>
+                        <Link
+                            :href="route('ai-vs-ai')"
+                            class="rounded-xl border border-[color:var(--line)] bg-[var(--panel)] px-5 py-3 text-sm font-semibold text-[color:var(--ink)]"
+                        >
+                            AI vs AI
                         </Link>
                         <span class="text-xs text-[color:var(--muted)]">
                             Guest mode enabled.

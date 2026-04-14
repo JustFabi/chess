@@ -165,6 +165,7 @@ class ChessEngineService
             'clock' => $this->buildClock($normalizedSettings, null),
             'result' => null,
             'drawOffer' => null,
+            'history' => [$this->getPositionKey($pieces, $castling, null, self::WHITE)],
         ];
     }
 
@@ -180,6 +181,7 @@ class ChessEngineService
         $gameState['settings'] = $this->normalizeSettings($gameState['settings'] ?? []);
         $gameState['lastMove'] = $lastMove;
         $gameState['moves'] = $gameState['moves'] ?? [];
+        $gameState['history'] = $gameState['history'] ?? [];
         $gameState['result'] = $gameState['result'] ?? null;
         $gameState['drawOffer'] = $gameState['drawOffer'] ?? null;
         $gameState = $this->ensureClockState($gameState);
@@ -250,7 +252,11 @@ class ChessEngineService
         $newLastMove = array_merge($matched, ['piece' => $movingPiece]);
 
         $nextMoves = $this->calculateLegalMoves($pieces, $newLastMove, $newCastling);
-        $result = $this->determineResult($pieces, $newLastMove, $nextMoves);
+
+        $newHistory = $gameState['history'] ?? [];
+        $newHistory[] = $this->getPositionKey($pieces, $newCastling, $newLastMove, $this->getSideToMove($newLastMove));
+
+        $result = $this->determineResult($pieces, $newLastMove, $nextMoves, $newHistory);
 
         $clock = $gameState['clock'];
         $increment = (int) ($clock['increment'] ?? 0);
@@ -273,6 +279,7 @@ class ChessEngineService
             'castling' => $newCastling,
             'result' => $result,
             'moves' => array_merge($gameState['moves'], [$matched]),
+            'history' => $newHistory,
             'clock' => $clock,
             'drawOffer' => null,
         ];
@@ -401,8 +408,18 @@ class ChessEngineService
         return false;
     }
 
-    private function determineResult(array $pieces, ?array $lastMove, array $possibleMoves): ?array
+    private function determineResult(array $pieces, ?array $lastMove, array $possibleMoves, array $history = []): ?array
     {
+        // Check for threefold repetition
+        if (!empty($history)) {
+            $counts = array_count_values($history);
+            foreach ($counts as $key => $count) {
+                if ($count >= 3) {
+                    return ['winner' => 'draw', 'reason' => 'threefold repetition'];
+                }
+            }
+        }
+
         if (!empty($possibleMoves)) return null;
 
         $side = $this->getSideToMove($lastMove);
@@ -548,6 +565,57 @@ class ChessEngineService
     {
         foreach ($pieces as $sq => $p) if ($p['type'] === self::KING && $p['color'] === $color) return $sq;
         return null;
+    }
+
+    private function getPositionKey(array $pieces, array $castling, ?array $lastMove, string $sideToMove): string
+    {
+        // 1. Piece positions
+        $board = "";
+        for ($r = 7; $r >= 0; $r--) {
+            $empty = 0;
+            for ($f = 0; $f < 8; $f++) {
+                $sq = $this->indexToSq($r * 8 + $f);
+                if (isset($pieces[$sq])) {
+                    if ($empty > 0) {
+                        $board .= $empty;
+                        $empty = 0;
+                    }
+                    $type = $pieces[$sq]['type'];
+                    $color = $pieces[$sq]['color'];
+                    $char = ($color === self::WHITE) ? strtoupper($type) : $type;
+                    $board .= $char;
+                } else {
+                    $empty++;
+                }
+            }
+            if ($empty > 0) $board .= $empty;
+            if ($r > 0) $board .= '/';
+        }
+
+        // 2. Side to move
+        $stm = ($sideToMove === self::WHITE) ? 'w' : 'b';
+
+        // 3. Castling rights
+        $c = "";
+        if ($castling[self::WHITE]['kingSide'] ?? false) $c .= 'K';
+        if ($castling[self::WHITE]['queenSide'] ?? false) $c .= 'Q';
+        if ($castling[self::BLACK]['kingSide'] ?? false) $c .= 'k';
+        if ($castling[self::BLACK]['queenSide'] ?? false) $c .= 'q';
+        if ($c === "") $c = "-";
+
+        // 4. En passant target square
+        $ep = "-";
+        if ($lastMove && $lastMove['piece']['type'] === self::PAWN) {
+            $fromIdx = $this->sqToIndex($lastMove['from']);
+            $toIdx = $this->sqToIndex($lastMove['to']);
+            if (abs((int)floor($fromIdx / 8) - (int)floor($toIdx / 8)) === 2) {
+                $targetR = ($lastMove['piece']['color'] === self::WHITE) ? 2 : 5;
+                $targetF = $fromIdx % 8;
+                $ep = self::FILES[$targetF] . ($targetR + 1);
+            }
+        }
+
+        return "{$board} {$stm} {$c} {$ep}";
     }
 
     private function buildInitialPieces(): array

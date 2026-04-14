@@ -188,6 +188,7 @@ export const useGameStateStore = defineStore('gameState', {
         capturedByBlack: [],
         capturedByWhite: [],
         moves: [],
+        history: [],
         result: null,
         drawOffer: null,
     }),
@@ -288,6 +289,7 @@ export const useGameStateStore = defineStore('gameState', {
                 ? gameState.capturedByWhite
                 : [];
             this.moves = Array.isArray(gameState?.moves) ? gameState.moves : [];
+            this.history = Array.isArray(gameState?.history) ? gameState.history : [];
             this.result = gameState?.result ?? null;
             this.drawOffer = gameState?.drawOffer ?? null;
             if (

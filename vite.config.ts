@@ -1,4 +1,3 @@
-import { wayfinder } from '@laravel/vite-plugin-wayfinder';
 import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
 import laravel from 'laravel-vite-plugin';
@@ -12,9 +11,6 @@ export default defineConfig({
             refresh: true,
         }),
         tailwindcss(),
-        wayfinder({
-            formVariants: true,
-        }),
         vue({
             template: {
                 transformAssetUrls: {
@@ -24,16 +20,4 @@ export default defineConfig({
             },
         }),
     ],
-    server: {
-        host: '0.0.0.0', // binds to all IPv4 interfaces
-        port: 5173,
-        cors: {
-            origin: 'http://192.168.0.190:8888',
-            credentials: true,
-        },
-        hmr: {
-            host: '192.168.0.190', // LAN IP for other devices
-            protocol: 'ws',
-        },
-    },
 });

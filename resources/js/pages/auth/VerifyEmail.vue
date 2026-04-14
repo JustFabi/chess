@@ -4,8 +4,6 @@ import TextLink from '@/components/TextLink.vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import AuthLayout from '@/layouts/AuthLayout.vue';
-import { logout } from '@/routes';
-import { send } from '@/routes/verification';
 
 defineProps<{
     status?: string;
@@ -28,7 +26,8 @@ defineProps<{
         </div>
 
         <Form
-            v-bind="send.form()"
+            :action="route('verification.send')"
+            method="post"
             class="space-y-6 text-center"
             v-slot="{ processing }"
         >
@@ -38,7 +37,8 @@ defineProps<{
             </Button>
 
             <TextLink
-                :href="logout()"
+                :href="route('logout')"
+                method="post"
                 as="button"
                 class="mx-auto block text-sm"
             >

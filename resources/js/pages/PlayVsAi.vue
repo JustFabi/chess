@@ -51,7 +51,7 @@ const cycleTimeControl = (direction) => {
 };
 
 const startMatch = () => {
-    router.post('/play-vs-ai/match', {
+    router.post(route('play-vs-ai.match'), {
         side: selectedSide.value,
         timeControl: selectedTimeControl.value,
         variant: 'standard',
@@ -141,7 +141,7 @@ const startMatch = () => {
                         <p
                             class="text-[11px] uppercase tracking-[0.35em] text-[color:var(--muted)]"
                         >
-                            Play vs AI
+                            Play vs Redline
                         </p>
                         <p
                             class="font-['Space_Grotesk'] text-lg font-semibold"

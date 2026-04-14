@@ -51,7 +51,7 @@ const cycleTimeControl = (direction) => {
 };
 
 const startMatch = () => {
-    router.post('/local-match/match', {
+    router.post(route('local-match.match'), {
         side: selectedSide.value,
         timeControl: selectedTimeControl.value,
         variant: 'standard',
